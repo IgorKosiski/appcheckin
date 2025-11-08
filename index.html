@@ -468,4 +468,232 @@
     }
 
     function stopScanner() {
-        if (html5QrCode && html
+        if (html5QrCode && html5QrCode.isScanning) {
+            html5QrCode.stop().catch(err => console.error("Erro ao parar scanner:", err));
+            document.getElementById('scanner-status').textContent = "Scanner Parado.";
+        }
+    }
+
+    function checkNfcUrl() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const clientId = urlParams.get('clientId');
+        
+        if (clientId) {
+            history.replaceState(null, '', window.location.pathname + window.location.hash);
+            handleClientScan(clientId);
+            document.getElementById('scanner-status').textContent = `ID recebido via NFC/URL: ${clientId}`;
+        }
+    }
+
+    let scannedClientId = null; 
+
+    async function handleClientScan(clientId) {
+        stopScanner(); 
+        scannedClientId = clientId;
+        const modal = document.getElementById('confirmation-modal');
+        const confirmBtn = document.getElementById('confirm-identity-button');
+        const statusMsg = document.getElementById('modal-status-message');
+
+        const details = await getClientDetails(clientId);
+        
+        document.getElementById('client-photo').src = details.photoUrl;
+        document.getElementById('modal-client-name').textContent = details.clientName;
+        document.getElementById('modal-pickup-details').textContent = `${details.pickupName} | Turma: ${details.turma}`;
+        confirmBtn.disabled = false;
+        statusMsg.classList.add('hidden');
+        
+        if (await isClientWaiting(clientId)) {
+            statusMsg.textContent = "ATENÇÃO: Este cliente JÁ está na fila!";
+            statusMsg.classList.remove('hidden');
+            confirmBtn.disabled = true; 
+        }
+
+        modal.classList.remove('hidden');
+    }
+
+    async function confirmClientCheckin() {
+        const modal = document.getElementById('confirmation-modal');
+        const confirmBtn = document.getElementById('confirm-identity-button');
+        
+        if (!scannedClientId) return;
+        
+        confirmBtn.disabled = true;
+
+        const details = await getClientDetails(scannedClientId);
+        
+        const waitingListCol = collection(db, 'artifacts', appId, 'public', 'data', 'waiting_list');
+        
+        const checkinData = {
+            clientId: scannedClientId,
+            clientName: details.clientName,
+            pickupName: details.pickupName,
+            turma: details.turma,
+            photoUrl: details.photoUrl,
+            status: 'waiting', 
+            checkinTime: serverTimestamp(),
+            checkedBy: userId
+        };
+
+        try {
+            await addDoc(waitingListCol, checkinData);
+            
+            modal.classList.add('hidden');
+            scannedClientId = null;
+            setTimeout(startScanner, 1000); 
+            
+        } catch (error) {
+            console.error("Erro ao adicionar cliente à lista:", error);
+            confirmBtn.disabled = false;
+        }
+    }
+
+    function cancelScan() {
+        document.getElementById('confirmation-modal').classList.add('hidden');
+        scannedClientId = null;
+        startScanner(); 
+    }
+
+
+    // --- MODO GERENCIADOR (LISTA DE ESPERA) ---
+
+    function renderWaitingList(tasks) {
+        const listContainer = document.getElementById('waiting-list');
+        listContainer.innerHTML = ''; 
+
+        if (tasks.length === 0) {
+            listContainer.innerHTML = '<p class="text-center text-gray-500 p-8">Nenhum cliente na lista de espera no momento.</p>';
+            return;
+        }
+
+        tasks.sort((a, b) => {
+            const timeA = a.checkinTime && a.checkinTime.seconds ? a.checkinTime.seconds : 0;
+            const timeB = b.checkinTime && b.checkinTime.seconds ? b.checkinTime.seconds : 0;
+            return timeA - timeB;
+        });
+
+        tasks.forEach(task => {
+            const time = task.checkinTime && task.checkinTime.seconds ? new Date(task.checkinTime.seconds * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'Hora Desconhecida';
+            const statusColor = task.status === 'waiting' ? 'bg-red-100 border-red-300' : 'bg-green-100 border-green-300';
+            const statusText = task.status === 'waiting' ? 'Aguardando' : 'Servido';
+            
+            const card = document.createElement('div');
+            card.className = `p-4 border-l-4 rounded-lg flex justify-between items-center ${statusColor}`;
+            card.innerHTML = `
+                <div class="flex items-center space-x-4">
+                    <img src="${task.photoUrl}" onerror="this.onerror=null; this.src='https://placehold.co/40x40/94A3B8/ffffff?text=?'" alt="Foto" class="w-10 h-10 rounded-full object-cover border-2 border-white shadow">
+                    <div>
+                        <div class="text-lg font-bold text-gray-900">${task.pickupName} <span class="text-sm font-medium text-indigo-700">(${task.turma})</span></div>
+                        <div class="text-sm text-gray-600">Buscador: ${task.clientName} | Check-in: ${time}</div>
+                        <div class="text-xs font-semibold mt-1 px-2 py-0.5 rounded-full ${task.status === 'waiting' ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}">${statusText}</div>
+                    </div>
+                </div>
+                <div class="flex space-x-2">
+                    <button data-id="${task.id}" data-status="called" class="action-btn px-3 py-1 bg-yellow-500 text-white rounded-md text-sm hover:bg-yellow-600 transition">Chamar</button>
+                    <button data-id="${task.id}" data-status="served" class="action-btn px-3 py-1 ${task.status === 'waiting' ? 'bg-green-600' : 'bg-gray-400 cursor-not-allowed' } text-white rounded-md text-sm hover:bg-green-700 transition" ${task.status !== 'waiting' ? 'disabled' : ''}>Servido</button>
+                    <button data-id="${task.id}" data-status="remove" class="action-btn px-3 py-1 bg-red-600 text-white rounded-md text-sm hover:bg-red-700 transition">Remover</button>
+                </div>
+            `;
+            listContainer.appendChild(card);
+        });
+
+        listContainer.querySelectorAll('.action-btn').forEach(button => {
+            button.addEventListener('click', handleListAction);
+        });
+    }
+
+    function loadWaitingList() {
+        if (!db) return;
+        
+        const waitingListCol = collection(db, 'artifacts', appId, 'public', 'data', 'waiting_list');
+        const q = query(waitingListCol, where('status', 'in', ['waiting', 'called']));
+
+        document.getElementById('loading-list').classList.remove('hidden');
+
+        // Este onSnapshot AGORA funcionará quando acessado via URL do GitHub
+        onSnapshot(q, (snapshot) => {
+            document.getElementById('loading-list').classList.add('hidden');
+            const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            renderWaitingList(tasks);
+        }, (error) => {
+            console.error("Erro no listener do Firestore:", error);
+            document.getElementById('loading-list').textContent = 'Erro ao carregar a lista. Verifique as permissões no console.';
+        });
+    }
+
+    async function handleListAction(e) {
+        const id = e.target.dataset.id;
+        const status = e.target.dataset.status;
+        
+        const taskRef = doc(db, 'artifacts', appId, 'public', 'data', 'waiting_list', id);
+
+        try {
+            if (status === 'remove') {
+                await deleteDoc(taskRef);
+            } else {
+                await updateDoc(taskRef, { 
+                    status: status,
+                    actionTime: serverTimestamp(),
+                    actionBy: userId 
+                });
+            }
+        } catch (error) {
+            console.error(`Erro ao executar ação ${status} em ${id}:`, error);
+        }
+    }
+
+
+    // --- INICIALIZAÇÃO E LISTENERS GERAIS ---
+
+    window.onload = function () {
+        initFirebase();
+        
+        document.getElementById('login-button').addEventListener('click', handleLogin);
+        document.getElementById('pin-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') handleLogin();
+        });
+        
+        document.getElementById('credential-form').addEventListener('submit', handleCredentialFormSubmit);
+
+        document.getElementById('confirm-identity-button').addEventListener('click', confirmClientCheckin);
+        document.getElementById('cancel-scan-button').addEventListener('click', cancelScan);
+
+        if (window.location.search.includes('clientId=')) {
+            document.getElementById('login-modal').classList.remove('hidden');
+        }
+    };
+    
+    // --- INJEÇÃO DA BIBLIOTECA QRCODE.JS (SIMPLIFICADA) ---
+    window.QRCode = function (el, options) {
+        if(typeof el === 'string') el = document.getElementById(el);
+        if(!el) return;
+        
+        const canvas = document.createElement('canvas');
+        el.appendChild(canvas);
+        
+        const size = options.width || 192;
+        canvas.width = size;
+        canvas.height = size;
+        
+        const ctx = canvas.getContext('2d');
+        const dark = options.colorDark || '#000000';
+        const light = options.colorLight || '#ffffff';
+        const text = options.text || 'ID';
+        
+        ctx.fillStyle = light;
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = dark;
+        
+        const cell = size / 10;
+        ctx.fillRect(cell, cell, 3 * cell, 3 * cell);
+        ctx.fillRect(6 * cell, cell, 3 * cell, 3 * cell);
+        ctx.fillRect(cell, 6 * cell, 3 * cell, 3 * cell);
+        
+        ctx.font = `${cell}px Arial`;
+        ctx.fillStyle = dark;
+        ctx.textAlign = 'center';
+        ctx.fillText(text.substring(0, 8), size / 2, size / 2);
+    };
+
+</script>
+</body>
+</html>
