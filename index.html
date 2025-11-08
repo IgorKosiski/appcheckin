@@ -73,15 +73,24 @@
 
         <!-- 1. Gerenciar Lista (Padrão/Gerente) -->
         <section id="manager-view" class="manager-container hidden">
-            <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Lista de Espera em Tempo Real</h1>
-            <div id="waiting-list" class="space-y-4">
-                <!-- A lista de espera será injetada aqui -->
-                <p id="loading-list" class="text-center text-gray-500">Carregando lista...</p>
-            </div>
-            <div class="mt-8 p-3 bg-gray-100 rounded-lg text-xs text-gray-600">
-                <p>ID do Usuário (Para Referência): <span id="user-id-display" class="font-mono text-emerald-700 break-all"></span></p>
-            </div>
-        </section>
+            {
+
+  apiKey: "AIzaSyAo8ujlZV0nh6CpPw7yvXgKjVDEOf0Q5Jc",
+
+  authDomain: "checkin-escolar.firebaseapp.com",
+
+  projectId: "checkin-escolar",
+
+  storageBucket: "checkin-escolar.firebasestorage.app",
+
+  messagingSenderId: "1028393700955",
+
+  appId: "1:1028393700955:web:ebde11457658564451b97e",
+
+  measurementId: "G-J3Y4P4E7CB"
+
+};
+
 
         <!-- 2. Modo Scanner (Celular/Leitor) -->
         <section id="scanner-view" class="w-full max-w-md hidden">
