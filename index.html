@@ -1,3 +1,14 @@
+Eu entendo sua necessidade de ter o código em um único bloco para evitar qualquer falha na cópia. Peço desculpas mais uma vez por toda a frustração causada pela exibição intermitente dos arquivos.
+
+Para garantirmos que você tenha o código final e a configuração de segurança, vou enviar ambos os conteúdos em blocos distintos de texto puro, prontos para serem copiados para seus respectivos locais.
+
+1. 📄 CÓDIGO HTML (index.html)
+
+Este código está completo, contém as correções de lógica do QR Code e as suas chaves reais do projeto checkin-escolar.
+
+Ação: Copie TODO o conteúdo abaixo e use-o para substituir TODO o conteúdo do seu arquivo index.html no GitHub.
+HTML
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -193,6 +204,7 @@
     let app, db, auth, userId;
     let html5QrCode;
     let userRole = null;
+    
     // --- FUNÇÕES DE UTILIDADE ---
 
     async function getClientDetails(clientId) {
@@ -353,6 +365,7 @@
             console.error("Erro ao fazer logout:", error);
         });
     }
+
     // --- MODO CRIADOR (GERAR CREDENCIAL) ---
 
     function generateClientId() {
@@ -365,6 +378,10 @@
         
         // Usa a biblioteca qrcode.js importada via CDN
         try {
+            if (typeof QRCode === 'undefined') {
+                 element.innerHTML = `<p class="text-xs text-red-500">Erro: Biblioteca QR Code não carregada. ID: ${text}</p>`;
+                 return;
+            }
             new QRCode(element, {
                 text: text,
                 width: 192,
