@@ -160,7 +160,7 @@
 <!-- Scripts do Firebase e Lógica da Aplicação -->
 <script type="module">
     // --- Configuração REAL do Firebase ---
-    // ESTA CONFIGURAÇÃO PERMITE QUE O APP SE CONECTE AO SEU BANCO DE DADOS CHECKIN-ESCOLAR
+    // SUAS CHAVES REAIS, INTEGRADO DIRETAMENTE PARA RESOLVER FALHAS DE CONEXÃO
     const REAL_FIREBASE_CONFIG = {
         apiKey: "AIzaSyAo8ujlZV0nh6CpPw7yvXgKjVDEOf0Q5Jc",
         authDomain: "checkin-escolar.firebaseapp.com",
@@ -171,13 +171,10 @@
         measurementId: "G-J3Y4P4E7CB"
     };
 
-    // Usaremos o projectId como o APP ID
     const appId = REAL_FIREBASE_CONFIG.projectId; 
     const firebaseConfig = REAL_FIREBASE_CONFIG;
-    // Não precisamos de um token inicial, usaremos autenticação anônima
     const initialAuthToken = null; 
 
-    // O código de erro está aqui para garantir que a variável firebaseConfig esteja presente.
     if (!firebaseConfig) {
         document.getElementById('app-container').innerHTML = '<div class="text-red-600 p-8 text-center">Erro: Configuração do Firebase não encontrada. Por favor, acesse via URL do Servidor (GitHub Pages)</div>';
         console.error("Firebase config is missing.");
@@ -189,11 +186,13 @@
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
     import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    
+    // Importar a biblioteca qrcode.js para a geração de QR code
+    import "https://cdnjs.cloudflare.com/ajax/libs/qrcode.js/1.0.0/qrcode.min.js"; 
 
     let app, db, auth, userId;
     let html5QrCode;
-    let userRole = null; // 'manager', 'scanner', or null
-
+    let userRole = null;
     // --- FUNÇÕES DE UTILIDADE ---
 
     async function getClientDetails(clientId) {
@@ -242,7 +241,7 @@
         auth = getAuth(app);
         
         try {
-            // Tenta autenticação anônima com as suas chaves
+            // Tenta autenticação anônima (necessário para obter o userId)
             await signInAnonymously(auth);
         } catch (error) {
             console.error("Erro na autenticação anônima:", error);
@@ -354,7 +353,6 @@
             console.error("Erro ao fazer logout:", error);
         });
     }
-
     // --- MODO CRIADOR (GERAR CREDENCIAL) ---
 
     function generateClientId() {
@@ -365,18 +363,19 @@
         const element = document.getElementById(elementId);
         element.innerHTML = ''; 
         
-        // Versão simples (Mock) da biblioteca QR Code
+        // Usa a biblioteca qrcode.js importada via CDN
         try {
-            const qr = new window.QRCode(element, {
+            new QRCode(element, {
                 text: text,
                 width: 192,
                 height: 192,
                 colorDark: "#10B981",
                 colorLight: "#ffffff",
-                correctLevel: window.QRCode.CorrectLevel.H
+                correctLevel: QRCode.CorrectLevel.H
             });
         } catch (e) {
-            console.warn("QRCode.js não carregado. Exibindo apenas o texto.");
+             // Fallback se a biblioteca falhar
+            console.error("Falha ao desenhar o QR Code com qrcode.js:", e);
             element.innerHTML = `<p class="text-xs text-red-500">Falha ao desenhar QR. ID: ${text}</p>`;
         }
     }
@@ -428,7 +427,7 @@
             form.reset();
             document.getElementById('client-id-input').value = clientId;
 
-            // Gera e exibe o QR Code
+            // Gera e exibe o QR Code (usando o clientId)
             document.getElementById('qrcode-container').classList.remove('hidden');
             document.getElementById('generated-client-id').textContent = `ID Gerado: ${clientId}`;
             drawQrCode(clientId, 'qrcode-display');
@@ -609,7 +608,6 @@
 
         document.getElementById('loading-list').classList.remove('hidden');
 
-        // Este onSnapshot AGORA funcionará quando acessado via URL do GitHub
         onSnapshot(q, (snapshot) => {
             document.getElementById('loading-list').classList.add('hidden');
             const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -660,38 +658,6 @@
         if (window.location.search.includes('clientId=')) {
             document.getElementById('login-modal').classList.remove('hidden');
         }
-    };
-    
-    // --- INJEÇÃO DA BIBLIOTECA QRCODE.JS (SIMPLIFICADA) ---
-    window.QRCode = function (el, options) {
-        if(typeof el === 'string') el = document.getElementById(el);
-        if(!el) return;
-        
-        const canvas = document.createElement('canvas');
-        el.appendChild(canvas);
-        
-        const size = options.width || 192;
-        canvas.width = size;
-        canvas.height = size;
-        
-        const ctx = canvas.getContext('2d');
-        const dark = options.colorDark || '#000000';
-        const light = options.colorLight || '#ffffff';
-        const text = options.text || 'ID';
-        
-        ctx.fillStyle = light;
-        ctx.fillRect(0, 0, size, size);
-        ctx.fillStyle = dark;
-        
-        const cell = size / 10;
-        ctx.fillRect(cell, cell, 3 * cell, 3 * cell);
-        ctx.fillRect(6 * cell, cell, 3 * cell, 3 * cell);
-        ctx.fillRect(cell, 6 * cell, 3 * cell, 3 * cell);
-        
-        ctx.font = `${cell}px Arial`;
-        ctx.fillStyle = dark;
-        ctx.textAlign = 'center';
-        ctx.fillText(text.substring(0, 8), size / 2, size / 2);
     };
 
 </script>
