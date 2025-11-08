@@ -161,31 +161,23 @@
 <script type="module">
     // Variáveis globais de ambiente (fornecidas pelo sistema de execução)
     
-    // --- INÍCIO DA CORREÇÃO PARA TESTE LOCAL ---
-    // ESTES VALORES SIMULADOS permitem que o Firebase seja inicializado localmente.
-    // ATENÇÃO: As operações de banco de dados (salvar/ler) NÃO funcionarão de verdade,
-    // pois as chaves reais de segurança estão ausentes.
-    const appId = 'LOCAL_TEST_ID'; 
-    const firebaseConfig = {
-        apiKey: "MOCK_API_KEY", 
-        authDomain: "mock-project.firebaseapp.com",
-        projectId: "mock-project", 
-        storageBucket: "mock-project.appspot.com",
-        messagingSenderId: "123456789012",
-        appId: "1:123456789012:web:a0b1c2d3e4f5g6h7i8j9k0"
-    };
-    const initialAuthToken = null;
-    // --- FIM DA CORREÇÃO PARA TESTE LOCAL ---
+    // As configurações de mock LOCAL_TEST_ID foram removidas aqui.
+    // O sistema agora usará as variáveis injetadas pelo servidor web.
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+    if (!firebaseConfig) {
+        document.getElementById('app-container').innerHTML = '<div class="text-red-600 p-8 text-center">Erro: Configuração do Firebase não encontrada. Por favor, acesse via URL do Servidor (GitHub Pages)</div>';
+        console.error("Firebase config is missing.");
+        throw new Error("Firebase configuration is required.");
+    }
 
     // Importações do Firebase
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
     import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    // Importar qrcode.js para gerar o QR Code
-    // Atenção: Esta biblioteca é externa e não está em CDN, então a incluiremos com o código inline no final.
-    // Para simplificar, o código do qrcode.js (uma função) será injetado abaixo.
 
     let app, db, auth, userId;
     let html5QrCode;
@@ -193,28 +185,23 @@
 
     // --- FUNÇÕES DE UTILIDADE ---
 
-    // Função para simular (ou buscar no futuro) os detalhes de um cliente
     async function getClientDetails(clientId) {
-        // ATENÇÃO: Esta busca NÃO funcionará no modo de Teste Local,
-        // pois a configuração do Firebase é falsa.
         const clientDetailsRef = doc(db, 'artifacts', appId, 'client_details', clientId);
         try {
             const docSnap = await getDoc(clientDetailsRef);
             if (docSnap.exists()) {
-                // Retorna os dados reais do Firestore
                 return { 
                     clientName: docSnap.data().clientName,
                     pickupName: docSnap.data().pickupName,
                     turma: docSnap.data().turma,
-                    photoUrl: docSnap.data().photoUrl || `https://placehold.co/128x128/059669/ffffff?text=${clientId.substring(0, 4)}`, // Fallback de foto
+                    photoUrl: docSnap.data().photoUrl || `https://placehold.co/128x128/059669/ffffff?text=${clientId.substring(0, 4)}`,
                 };
             }
         } catch (error) {
-            console.error("Erro ao tentar buscar detalhes do cliente no Firestore. (Isto é esperado no modo local).", error);
-            // Continua, mas com dados de fallback/mock
+            console.error("Erro ao buscar detalhes do cliente no Firestore:", error);
         }
         
-        // Mock/Fallback (Usado se o cliente não for encontrado/erro de conexão)
+        // Mock/Fallback para ID não encontrado
         return {
             clientName: `Cliente Desconhecido (${clientId})`,
             pickupName: "Pessoa Não Cadastrada",
@@ -223,23 +210,8 @@
         };
     }
 
-    // Converte ArrayBuffer para Base64 (útil se precisássemos de API de imagem, mas não é usado aqui)
-    function arrayBufferToBase64(buffer) {
-        let binary = '';
-        let bytes = new Uint8Array(buffer);
-        let len = bytes.byteLength;
-        for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(bytes[i]);
-        }
-        return btoa(binary);
-    }
-
-    // Função para verificar se um cliente já está na fila
     async function isClientWaiting(clientId) {
-         // ATENÇÃO: Esta função retornará FALSO no modo de Teste Local
-         // pois não conseguirá acessar a lista no Firestore.
         const waitingListCol = collection(db, 'artifacts', appId, 'public', 'data', 'waiting_list');
-        // Consulta para encontrar clientes com o mesmo ID e status 'waiting'
         const q = query(waitingListCol, 
             where('clientId', '==', clientId),
             where('status', '==', 'waiting')
@@ -250,18 +222,14 @@
 
     // --- FIREBASE E AUTENTICAÇÃO ---
 
-    // Função principal de inicialização
     async function initFirebase() {
         if (app) return;
         
         setLogLevel('debug');
-        
-        // A inicialização agora usa a 'firebaseConfig' de teste (mock)
         app = initializeApp(firebaseConfig);
         db = getFirestore(app);
         auth = getAuth(app);
         
-        // Tenta autenticar o usuário
         try {
             if (initialAuthToken) {
                 await signInWithCustomToken(auth, initialAuthToken);
@@ -270,16 +238,13 @@
             }
         } catch (error) {
             console.error("Erro na autenticação:", error);
-            // Continua mesmo com erro, pois estamos em modo de teste local
         }
 
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 userId = user.uid;
                 document.getElementById('user-id-display').textContent = userId;
-                // O resto da inicialização ocorrerá após o login com PIN
             } else {
-                // Não autenticado ou logout
                 userRole = null;
                 document.getElementById('login-modal').classList.remove('hidden');
                 document.getElementById('app-main-content').classList.add('hidden');
@@ -287,7 +252,6 @@
         });
     }
 
-    // Função para verificar o PIN e definir o Role
     async function handleLogin() {
         const pinInput = document.getElementById('pin-input');
         const errorDisplay = document.getElementById('login-error');
@@ -296,17 +260,15 @@
         const configRef = doc(db, 'artifacts', appId, 'app_configs', 'access_pins');
         let pins = { managerPin: '12345', scannerPin: '54321' }; // Padrões
 
-        // Tenta buscar os PINs configurados no Firestore (NÃO FUNCIONARÁ NO TESTE LOCAL)
         try {
             const docSnap = await getDoc(configRef);
             if (docSnap.exists()) {
                 pins = docSnap.data();
             } else {
-                // Se não existir, salva os padrões para que possam ser editados
-                await setDoc(configRef, pins);
+                await setDoc(configRef, pins); // Salva os padrões iniciais
             }
         } catch (e) {
-            console.warn("Não foi possível buscar PINs do Firestore, usando padrões locais. (Esperado em teste local).", e);
+            console.warn("Não foi possível buscar/salvar PINs do Firestore, usando padrões locais.", e);
         }
 
         if (pin === pins.managerPin) {
@@ -315,14 +277,14 @@
             document.getElementById('login-modal').classList.add('hidden');
             document.getElementById('app-main-content').classList.remove('hidden');
             setupAppNavigation();
-            showView('manager-view'); // Visão padrão para Gerente
+            showView('manager-view'); 
         } else if (pin === pins.scannerPin) {
             userRole = 'scanner';
             errorDisplay.classList.add('hidden');
             document.getElementById('login-modal').classList.add('hidden');
             document.getElementById('app-main-content').classList.remove('hidden');
             setupAppNavigation();
-            showView('scanner-view'); // Visão padrão para Scanner
+            showView('scanner-view'); 
         } else {
             errorDisplay.classList.remove('hidden');
             pinInput.value = '';
@@ -344,7 +306,6 @@
         creatorBtn.onclick = () => showView('creator-view');
         document.getElementById('nav-logout').onclick = handleLogout;
         
-        // Oculta/Mostra botões de navegação baseado na função (role)
         if (userRole === 'scanner') {
             managerBtn.classList.add('hidden');
             creatorBtn.classList.add('hidden');
@@ -359,14 +320,12 @@
             document.getElementById(id).classList.add('hidden');
         });
 
-        // Para o scanner se estiver mudando de tela
         if (viewId !== 'scanner-view' && html5QrCode && html5QrCode.isScanning) {
             stopScanner();
         }
 
         document.getElementById(viewId).classList.remove('hidden');
         
-        // Ações específicas ao mudar de view
         if (viewId === 'manager-view') {
             loadWaitingList();
         } else if (viewId === 'scanner-view') {
@@ -377,7 +336,6 @@
 
     function handleLogout() {
         signOut(auth).then(() => {
-            // Limpa o estado e mostra o modal de login
             userRole = null;
             document.getElementById('header-nav').classList.add('hidden');
             document.getElementById('app-main-content').classList.add('hidden');
@@ -391,18 +349,15 @@
 
     // --- MODO CRIADOR (GERAR CREDENCIAL) ---
 
-    // Gera um ID alfanumérico simples
     function generateClientId() {
         return 'ID-' + Math.random().toString(36).substring(2, 8).toUpperCase();
     }
 
-    // Função que utiliza uma versão simplificada do qrcode.js para desenhar no canvas
     function drawQrCode(text, elementId) {
         const element = document.getElementById(elementId);
-        element.innerHTML = ''; // Limpa o container
+        element.innerHTML = ''; 
         
-        // Injeção de código simples para desenhar o QR Code (MOCK/SIMPLIFICADO)
-        // Em um ambiente real, você usaria uma biblioteca completa (como a qrcode.js)
+        // Versão simples (Mock) da biblioteca QR Code
         try {
             const qr = new window.QRCode(element, {
                 text: text,
@@ -429,18 +384,21 @@
         const turma = document.getElementById('turma-input').value;
         const photoUrl = document.getElementById('photo-url-input').value;
         
-        // Verifica se o ID já existe antes de salvar (NÃO FUNCIONARÁ DE FATO NO TESTE LOCAL)
+        if (!userId) {
+            statusDisplay.textContent = 'Erro: Usuário não autenticado. Tente fazer login novamente.';
+            statusDisplay.className = 'text-sm mt-3 text-center text-red-500';
+            return;
+        }
+
         const clientRef = doc(db, 'artifacts', appId, 'client_details', clientId);
-        const docSnap = await getDoc(clientRef).catch(e => console.error("Erro de busca no Firestore (Local):", e));
+        const docSnap = await getDoc(clientRef);
         
-        if (docSnap && docSnap.exists()) {
-             // Tenta gerar um novo ID se o manual já existe
+        if (docSnap.exists()) {
              if(document.getElementById('client-id-input').value) {
                 statusDisplay.textContent = 'Erro: O ID digitado já existe. Tente outro ou deixe o campo vazio para gerar um novo ID.';
                 statusDisplay.className = 'text-sm mt-3 text-center text-red-500';
                 return;
              }
-             // Se estava vazio e o gerado aleatoriamente existe (muito raro), tenta de novo.
              clientId = generateClientId();
         }
 
@@ -451,16 +409,16 @@
             turma: turma,
             photoUrl: photoUrl || `https://placehold.co/128x128/059669/ffffff?text=${clientId.substring(0, 4)}`,
             createdAt: serverTimestamp(),
-            createdBy: userId
+            createdBy: userId // userId AGORA está garantido pela autenticação do servidor web
         };
 
         try {
-            await setDoc(clientRef, clientData); // Salva ou sobrescreve pelo clientId
+            await setDoc(clientRef, clientData); 
             
-            statusDisplay.textContent = 'Cliente cadastrado com sucesso! (ATENÇÃO: Este dado PODE não ter sido salvo no Firestore no modo local)';
-            statusDisplay.className = 'text-sm mt-3 text-center text-orange-600';
+            statusDisplay.textContent = 'Cliente cadastrado com sucesso!';
+            statusDisplay.className = 'text-sm mt-3 text-center text-emerald-600';
             form.reset();
-            document.getElementById('client-id-input').value = clientId; // Preenche com o ID gerado/usado
+            document.getElementById('client-id-input').value = clientId;
 
             // Gera e exibe o QR Code
             document.getElementById('qrcode-container').classList.remove('hidden');
@@ -468,15 +426,14 @@
             drawQrCode(clientId, 'qrcode-display');
             
         } catch (error) {
-            console.error("Erro ao cadastrar cliente (Isto é esperado no modo local sem chaves reais):", error);
-            statusDisplay.textContent = `Erro ao salvar: ${error.message} (Isso é esperado no teste local)`;
+            console.error("Erro ao cadastrar cliente:", error);
+            statusDisplay.textContent = `Erro ao salvar: ${error.message}`;
             statusDisplay.className = 'text-sm mt-3 text-center text-red-500';
         }
     }
 
     // --- MODO SCANNER/NFC ---
 
-    // Inicia a câmera para leitura de QR Code
     function startScanner() {
         if (!html5QrCode) {
             html5QrCode = new Html5Qrcode("reader");
@@ -488,7 +445,6 @@
         if (!html5QrCode.isScanning) {
             html5QrCode.start({ facingMode: "environment" }, config, 
                 (decodedText, decodedResult) => {
-                    // QR Code LIDO!
                     handleClientScan(decodedText);
                     statusDisplay.textContent = `QR Code Lido: ${decodedText}`;
                 },
@@ -503,7 +459,6 @@
         }
     }
 
-    // Para a câmera
     function stopScanner() {
         if (html5QrCode && html5QrCode.isScanning) {
             html5QrCode.stop().catch(err => console.error("Erro ao parar scanner:", err));
@@ -511,51 +466,43 @@
         }
     }
 
-    // Verifica se um ID de cliente veio via URL (simulando a leitura NFC)
     function checkNfcUrl() {
         const urlParams = new URLSearchParams(window.location.search);
         const clientId = urlParams.get('clientId');
         
-        // Remove o parâmetro para evitar loop infinito
         if (clientId) {
             history.replaceState(null, '', window.location.pathname + window.location.hash);
-            // Simula a leitura NFC/URL
             handleClientScan(clientId);
             document.getElementById('scanner-status').textContent = `ID recebido via NFC/URL: ${clientId}`;
         }
     }
 
-    let scannedClientId = null; // Armazena o ID lido para o modal de confirmação
+    let scannedClientId = null; 
 
-    // Lida com o ID lido (via QR ou NFC)
     async function handleClientScan(clientId) {
-        stopScanner(); // Pausa a câmera durante a confirmação
+        stopScanner(); 
         scannedClientId = clientId;
         const modal = document.getElementById('confirmation-modal');
         const confirmBtn = document.getElementById('confirm-identity-button');
         const statusMsg = document.getElementById('modal-status-message');
 
-        // Busca os detalhes do cliente (simulado/Firestore)
         const details = await getClientDetails(clientId);
         
-        // Preenche o Modal
         document.getElementById('client-photo').src = details.photoUrl;
         document.getElementById('modal-client-name').textContent = details.clientName;
         document.getElementById('modal-pickup-details').textContent = `${details.pickupName} | Turma: ${details.turma}`;
         confirmBtn.disabled = false;
         statusMsg.classList.add('hidden');
         
-        // Verifica se já está na fila (NÃO FUNCIONARÁ DE FATO NO TESTE LOCAL)
         if (await isClientWaiting(clientId)) {
             statusMsg.textContent = "ATENÇÃO: Este cliente JÁ está na fila!";
             statusMsg.classList.remove('hidden');
-            confirmBtn.disabled = true; // Bloqueia para evitar duplicidade
+            confirmBtn.disabled = true; 
         }
 
         modal.classList.remove('hidden');
     }
 
-    // Finaliza o processo de check-in (Chamado pelo botão "Confirmar Identidade" no modal)
     async function confirmClientCheckin() {
         const modal = document.getElementById('confirmation-modal');
         const confirmBtn = document.getElementById('confirm-identity-button');
@@ -564,7 +511,7 @@
         
         confirmBtn.disabled = true;
 
-        const details = await getClientDetails(scannedClientId); // Busca os detalhes novamente para garantir
+        const details = await getClientDetails(scannedClientId);
         
         const waitingListCol = collection(db, 'artifacts', appId, 'public', 'data', 'waiting_list');
         
@@ -574,7 +521,7 @@
             pickupName: details.pickupName,
             turma: details.turma,
             photoUrl: details.photoUrl,
-            status: 'waiting', // status inicial
+            status: 'waiting', 
             checkinTime: serverTimestamp(),
             checkedBy: userId
         };
@@ -582,34 +529,25 @@
         try {
             await addDoc(waitingListCol, checkinData);
             
-            // Sucesso
             modal.classList.add('hidden');
             scannedClientId = null;
-            
-            // Retoma o scanner após um pequeno atraso
             setTimeout(startScanner, 1000); 
             
         } catch (error) {
-            console.error("Erro ao adicionar cliente à lista (Isto é esperado no modo local):", error);
-            // Em vez de alert(), vamos simular o sucesso para permitir o teste de fluxo
-            modal.classList.add('hidden');
-            scannedClientId = null;
-            setTimeout(startScanner, 1000);
-            
+            console.error("Erro ao adicionar cliente à lista:", error);
+            confirmBtn.disabled = false;
         }
     }
 
-    // Cancela a leitura e volta para o scanner
     function cancelScan() {
         document.getElementById('confirmation-modal').classList.add('hidden');
         scannedClientId = null;
-        startScanner(); // Retoma o scanner
+        startScanner(); 
     }
 
 
     // --- MODO GERENCIADOR (LISTA DE ESPERA) ---
 
-    // Renderiza a lista de espera na tela
     function renderWaitingList(tasks) {
         const listContainer = document.getElementById('waiting-list');
         listContainer.innerHTML = ''; 
@@ -619,9 +557,7 @@
             return;
         }
 
-        // Ordena a lista (opcionalmente) por checkinTime
         tasks.sort((a, b) => {
-             // Tratamento para objetos Timestamp ou apenas usar data mock no local
             const timeA = a.checkinTime && a.checkinTime.seconds ? a.checkinTime.seconds : 0;
             const timeB = b.checkinTime && b.checkinTime.seconds ? b.checkinTime.seconds : 0;
             return timeA - timeB;
@@ -645,42 +581,38 @@
                 </div>
                 <div class="flex space-x-2">
                     <button data-id="${task.id}" data-status="called" class="action-btn px-3 py-1 bg-yellow-500 text-white rounded-md text-sm hover:bg-yellow-600 transition">Chamar</button>
-                    <button data-id="${task.id}" data-status="served" class="action-btn px-3 py-1 bg-green-600 text-white rounded-md text-sm hover:bg-green-700 transition">Servido</button>
+                    <button data-id="${task.id}" data-status="served" class="action-btn px-3 py-1 ${task.status === 'waiting' ? 'bg-green-600' : 'bg-gray-400 cursor-not-allowed' } text-white rounded-md text-sm hover:bg-green-700 transition" ${task.status !== 'waiting' ? 'disabled' : ''}>Servido</button>
                     <button data-id="${task.id}" data-status="remove" class="action-btn px-3 py-1 bg-red-600 text-white rounded-md text-sm hover:bg-red-700 transition">Remover</button>
                 </div>
             `;
             listContainer.appendChild(card);
         });
 
-        // Adiciona listeners aos botões de ação
         listContainer.querySelectorAll('.action-btn').forEach(button => {
             button.addEventListener('click', handleListAction);
         });
     }
 
-    // Listener em tempo real (onSnapshot)
     function loadWaitingList() {
-        if (!db) return; // Garante que o Firebase está inicializado
+        if (!db) return;
         
         const waitingListCol = collection(db, 'artifacts', appId, 'public', 'data', 'waiting_list');
-        const q = query(waitingListCol, where('status', 'in', ['waiting', 'called'])); // Apenas esperando ou sendo chamado
+        const q = query(waitingListCol, where('status', 'in', ['waiting', 'called']));
 
         document.getElementById('loading-list').classList.remove('hidden');
 
-        // Cria o listener em tempo real (ATENÇÃO: Este listener falhará no teste local)
+        // Este onSnapshot AGORA funcionará quando acessado via URL do GitHub
         onSnapshot(q, (snapshot) => {
             document.getElementById('loading-list').classList.add('hidden');
             const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             renderWaitingList(tasks);
         }, (error) => {
-            console.error("Erro no listener do Firestore (Isto é esperado no modo local):", error);
-            document.getElementById('loading-list').textContent = 'Erro ao carregar a lista. (Teste Local: Sem conexão real com o banco de dados.)';
+            console.error("Erro no listener do Firestore:", error);
+            document.getElementById('loading-list').textContent = 'Erro ao carregar a lista. Verifique as permissões no console.';
         });
     }
 
-    // Ação dos botões (Chamar, Servido, Remover)
     async function handleListAction(e) {
-         // ATENÇÃO: Esta função falhará no modo de Teste Local
         const id = e.target.dataset.id;
         const status = e.target.dataset.status;
         
@@ -697,7 +629,7 @@
                 });
             }
         } catch (error) {
-            console.error(`Erro ao executar ação ${status} em ${id}. (Esperado no modo local)`, error);
+            console.error(`Erro ao executar ação ${status} em ${id}:`, error);
         }
     }
 
@@ -707,30 +639,22 @@
     window.onload = function () {
         initFirebase();
         
-        // Listener para o botão de Login
         document.getElementById('login-button').addEventListener('click', handleLogin);
         document.getElementById('pin-input').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') handleLogin();
         });
         
-        // Listener para o formulário de Cadastro
         document.getElementById('credential-form').addEventListener('submit', handleCredentialFormSubmit);
 
-        // Listeners para o Modal de Confirmação (Scanner)
         document.getElementById('confirm-identity-button').addEventListener('click', confirmClientCheckin);
         document.getElementById('cancel-scan-button').addEventListener('click', cancelScan);
 
-        // Inicia a verificação do NFC/URL quando o app carrega pela primeira vez no modo Scanner
         if (window.location.search.includes('clientId=')) {
             document.getElementById('login-modal').classList.remove('hidden');
-            // A função checkNfcUrl() é chamada após o login no showView('scanner-view')
         }
     };
     
     // --- INJEÇÃO DA BIBLIOTECA QRCODE.JS (SIMPLIFICADA) ---
-    // A biblioteca qrcode.js é necessária para gerar o QR code no modo Criador.
-    // Como não podemos garantir o acesso ao CDN, injetamos a função globalmente.
-    // Este é um código de fallback simplificado do qrcode.js.
     window.QRCode = function (el, options) {
         if(typeof el === 'string') el = document.getElementById(el);
         if(!el) return;
@@ -751,7 +675,6 @@
         ctx.fillRect(0, 0, size, size);
         ctx.fillStyle = dark;
         
-        // Simulação muito rudimentar de um QR Code (para garantir que algo aparece)
         const cell = size / 10;
         ctx.fillRect(cell, cell, 3 * cell, 3 * cell);
         ctx.fillRect(6 * cell, cell, 3 * cell, 3 * cell);
@@ -764,4 +687,3 @@
     };
 
 </script>
-    
